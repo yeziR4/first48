@@ -90,11 +90,21 @@ export function detectVisa(text: string): Visa {
 }
 
 export function detectSalary(text: string): string | undefined {
-  const m = text.match(/(?:[$£€]\s?\d[\d,.]*\s?[kK]?(?:\s?(?:–|-|to)\s?[$£€]?\s?\d[\d,.]*\s?[kK]?)?)(?:\s?(?:USD|GBP|EUR|\/yr|\/year|per year|annually))?/);
+  for (const m of text.matchAll(/(?:[$£€]\s?\d[\d,.]*\s?[kK]?(?:\s?(?:–|-|to)\s?[$£€]?\s?\d[\d,.]*\s?[kK]?)?)/g)) {
+    const ok = salaryOk(m[0]);
+    if (ok) return ok;
+  }
+  return undefined;
+}
+
+function salaryOk(raw: string): string | undefined {
+  const m = raw.match(/(?:[$£€]\s?\d[\d,.]*\s?[kK]?(?:\s?(?:–|-|to)\s?[$£€]?\s?\d[\d,.]*\s?[kK]?)?)(?:\s?(?:USD|GBP|EUR|\/yr|\/year|per year|annually))?/);
   if (!m) return undefined;
   const v = m[0].trim();
-  // Ignore tiny numbers like "$5" in unrelated copy.
-  return /\d{2,}/.test(v.replace(/[,.]/g, "")) ? v : undefined;
+  // Only accept plausible pay: a "k" amount or a figure of at least 15,000 (ignores "$30 credit", "$50-200").
+  const first = v.match(/\d[\d,]*(?:\.\d+)?\s?[kK]?/)?.[0] ?? "";
+  const n = Number(first.replace(/[^\d.]/g, "")) * (/k/i.test(first) ? 1000 : 1);
+  return n >= 15000 ? v.replace(/[.,]$/, "") : undefined;
 }
 
 export const CLOSED = /(no longer (accepting|available|open)|position (has been )?filled|job (is )?(closed|not found|has expired)|this job (posting )?(is no longer|has been removed)|page (you|you're) looking for (doesn't|does not) exist|couldn't find (that|this) job|error=true)/i;

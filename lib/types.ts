@@ -10,6 +10,7 @@ export interface Prefs {
   freshnessHours: Freshness;
   lanes: { jobs: boolean; hackathons: boolean; bounties: boolean };
   deep: boolean; // allow paid Agent runs
+  skills: string[]; // from the visitor's profile, used to personalise ranking
 }
 
 export type Endpoint = "search" | "fetch" | "agent";
@@ -30,6 +31,8 @@ export interface Job {
   title: string;
   company: string;
   slug?: string;
+  logo?: string;
+  skillHits?: string[];
   url: string;
   source: string; // ATS / portal name
   location?: string;
@@ -50,6 +53,7 @@ export interface Job {
 export interface Hackathon {
   id: string;
   title: string;
+  image?: string;
   url: string;
   source: string;
   host?: string;
@@ -96,3 +100,36 @@ export type ScanEvent =
   | { type: "done"; ms: number; calls: Record<Endpoint, number> };
 
 export type Emit = (e: ScanEvent) => void;
+
+export interface Profile {
+  name?: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  headline?: string;
+  bio?: string;
+  avatar?: string;
+  workAuth?: string; // e.g. "Need sponsorship" / "Authorized to work in the US"
+  links: { linkedin?: string; github?: string; x?: string; portfolio?: string; other?: string };
+  resumeText?: string;
+  resumeUrl?: string;
+  skills: string[];
+  projects: { name: string; url?: string; description?: string }[];
+  sources: { url: string; ok: boolean; note?: string }[];
+}
+
+export type ApplyEvent =
+  | { type: "status"; message: string }
+  | { type: "fit"; matched: string[]; missing: string[]; title?: string; company?: string }
+  | { type: "stream"; url: string }
+  | { type: "progress"; message: string }
+  | { type: "result"; result: ApplyResult }
+  | { type: "error"; message: string };
+
+export interface ApplyResult {
+  status: "submitted" | "filled_not_submitted" | "blocked" | "failed";
+  filled: { field: string; value: string }[];
+  needsYou: string[];
+  confirmation?: string;
+  summary?: string;
+}

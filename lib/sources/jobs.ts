@@ -11,6 +11,7 @@ import { agentJson, type SearchResult, type TinyFish } from "../tinyfish";
 import type { Emit, Job, Prefs, Stats } from "../types";
 import { ageLabel, canonicalUrl, CLOSED, detectSalary, detectSeniority, detectVisa, hash, hoursAgo, overlap, titleCase } from "../util";
 import { rankJobs } from "../rank";
+import { findSkills } from "../profile";
 
 interface Ats {
   name: string;
@@ -282,7 +283,8 @@ export async function findJobs(tf: TinyFish, p: Prefs, emit: Emit, publish: Publ
   ];
   emit({ type: "status", message: `Reading ${relevant.length} postings at the source to verify they're live…` });
   const toRead = relevant.filter((j) => atsFor(j.url)?.ats.fetchable !== false).map((j) => j.url);
-  const pages = await tf.fetch(toRead, "Verify postings + extract details", { purpose: "Check the job posting is still open and extract location, salary and visa sponsorship wording" });
+  const pages = await tf.fetch(toRead, "Verify postings + extract details", { images: true, purpose: "Check the job posting is still open and extract location, salary and visa sponsorship wording" });
+  const mySkills = new Set(p.skills.map((x) => x.toLowerCase()));
 
   for (const j of relevant) {
     const d = pages.get(j.url);
@@ -298,6 +300,8 @@ export async function findJobs(tf: TinyFish, p: Prefs, emit: Emit, publish: Publ
     j.salary = detectSalary(text.slice(0, 6000));
     j.location = extractLocation(text) ?? j.location;
     j.remote = /\bremote\b/i.test(`${j.location ?? ""} ${text.slice(0, 1200)}`);
+    j.logo = pickLogo(d.image_links ?? []);
+    if (mySkills.size) j.skillHits = findSkills(text).filter((k) => mySkills.has(k));
   }
   for (const j of relevant) j.seniority = detectSeniority(j.title);
 
@@ -313,6 +317,12 @@ export async function findJobs(tf: TinyFish, p: Prefs, emit: Emit, publish: Publ
     const again = rankJobs([...relevant, ...agentJobs], p);
     publish(again.jobs, stats(again, agentJobs.length));
   }
+}
+
+/** Company logo from the posting's own images (ATS pages embed the employer's logo). */
+export function pickLogo(imgs: string[]): string | undefined {
+  const ok = imgs.filter((u) => /^https:/.test(u) && !/lever-logo|greenhouse-logo|ashby-logo|workday-logo|emoji|avatar|tracking|pixel|\.gif/i.test(u));
+  return ok.find((u) => /logo|wordmark|org-theme|badge|brand|company_logos|small_logos/i.test(u));
 }
 
 function extractLocation(md: string): string | undefined {

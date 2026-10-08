@@ -38,5 +38,6 @@ export function parsePrefs(body: unknown): Prefs {
     freshnessHours: ([24, 48, 168].includes(fresh) ? fresh : 48) as Prefs["freshnessHours"],
     lanes: { jobs: lanes.jobs !== false, hackathons: lanes.hackathons !== false, bounties: lanes.bounties !== false },
     deep: Boolean(b.deep),
+    skills: list(b.skills, 30).map((x) => x.toLowerCase()),
   };
 }

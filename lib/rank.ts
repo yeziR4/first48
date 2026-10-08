@@ -49,6 +49,7 @@ export function rankJobs(input: Job[], p: Prefs): { jobs: Job[]; stats: Omit<Sta
   const out: Job[] = [];
   for (const j of unique) {
     if (j.verified === "closed") { stats.closedRemoved++; continue; }
+    if (/^(careers?|jobs?|job search|search jobs|open positions|join us)$/i.test(j.title.trim())) continue;
     if (p.needsVisa && j.visa === "no-sponsor") { stats.visaFiltered++; continue; }
     if (p.seniority !== "any" && j.seniority && j.seniority !== "any" && Math.abs(LEVEL[j.seniority] - LEVEL[p.seniority]) >= 2) { stats.seniorityFiltered++; continue; }
 
@@ -62,6 +63,11 @@ export function rankJobs(input: Job[], p: Prefs): { jobs: Job[]; stats: Omit<Sta
       const hits = p.keywords.filter((k) => overlap(k, hay) >= 0.99);
       score += Math.min(10, hits.length * 5);
       if (hits.length) reasons.push(`Mentions ${hits.join(", ")}`);
+    }
+
+    if (j.skillHits?.length) {
+      score += Math.min(15, j.skillHits.length * 3);
+      reasons.push(`Uses ${j.skillHits.length} of your skills (${j.skillHits.slice(0, 4).join(", ")})`);
     }
 
     const f = freshnessPoints(j.postedHoursAgo);

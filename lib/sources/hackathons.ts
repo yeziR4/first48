@@ -18,6 +18,7 @@ interface DevpostHackathon {
   registrations_count?: number;
   organization_name?: string;
   invite_only?: boolean;
+  thumbnail_url?: string;
 }
 
 const MONTH = "(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?";
@@ -66,6 +67,7 @@ async function devpost(tf: TinyFish, p: Prefs, theme: string): Promise<Hackathon
       if ((h.registrations_count ?? 0) < 150) { score += 5; reasons.push(`${h.registrations_count ?? 0} registered — low competition`); }
       out.push({
         id: hash(h.url), title: h.title, url: h.url, source: "Devpost", host: h.organization_name, online,
+        image: h.thumbnail_url && !/placeholder/.test(h.thumbnail_url) ? (h.thumbnail_url.startsWith("//") ? `https:${h.thumbnail_url}` : h.thumbnail_url) : undefined,
         location: online ? "Online" : where, prize: prizeUsd ? prize : undefined, dates: h.submission_period_dates,
         score: Math.round(Math.min(100, score)), reasons,
       });
@@ -90,7 +92,7 @@ async function events(tf: TinyFish, p: Prefs, theme: string): Promise<Hackathon[
     }
   }));
   const picks = [...new Map(res.map((x) => [canonicalUrl(x.r.url), x])).values()].slice(0, 16);
-  const pages = await tf.fetch(picks.map((x) => x.r.url), "Read event pages", { purpose: "Extract the event date, location and whether it already happened" });
+  const pages = await tf.fetch(picks.map((x) => x.r.url), "Read event pages", { images: true, purpose: "Extract the event date, location and whether it already happened" });
 
   const out: Hackathon[] = [];
   for (const { r, source } of picks) {
@@ -113,6 +115,7 @@ async function events(tf: TinyFish, p: Prefs, theme: string): Promise<Hackathon[
     out.push({
       id: hash(canonicalUrl(r.url)), title: (d?.title || r.title).replace(/\s*[|·]\s*(Luma|Eventbrite).*$/i, "").replace(/ Tickets,.*$/i, "").slice(0, 120),
       url: r.url.split("?")[0], source, online, prize: prizeM?.[0], dates: dateStr,
+      image: d?.image_links?.find((u) => /^https:/.test(u) && /\.(jpe?g|png|webp)|images\.lumacdn|img\.evbuc|cdn\.lu\.ma/i.test(u) && !/avatar|logo|icon/i.test(u)),
       postedHoursAgo: h, postedLabel: ageLabel(h), score: Math.round(Math.min(100, score)), reasons,
     });
   }

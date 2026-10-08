@@ -23,6 +23,7 @@ export interface FetchResult {
   description?: string;
   text?: string;
   links?: string[];
+  image_links?: string[];
   published_date?: string | null;
 }
 
@@ -85,7 +86,7 @@ export class TinyFish {
   }
 
   /** Fetch up to 10 URLs per request; larger lists are split into parallel batches. */
-  async fetch(urls: string[], label: string, opts: { format?: "markdown" | "html"; links?: boolean; purpose?: string; timeoutMs?: number } = {}): Promise<Map<string, FetchResult>> {
+  async fetch(urls: string[], label: string, opts: { format?: "markdown" | "html"; links?: boolean; images?: boolean; purpose?: string; timeoutMs?: number } = {}): Promise<Map<string, FetchResult>> {
     const out = new Map<string, FetchResult>();
     const batches: string[][] = [];
     for (let i = 0; i < urls.length; i += 10) batches.push(urls.slice(i, i + 10));
@@ -94,6 +95,7 @@ export class TinyFish {
         urls: batch,
         format: opts.format ?? "markdown",
         links: opts.links ?? false,
+        image_links: opts.images ?? false,
         purpose: opts.purpose,
         per_url_timeout_ms: opts.timeoutMs ?? 40_000,
       };
@@ -133,6 +135,52 @@ export class TinyFish {
       return d.result as T;
     }, () => "completed").catch(() => null);
   }
+}
+
+export interface AgentStreamEvent {
+  type: "STARTED" | "STREAMING_URL" | "PROGRESS" | "COMPLETE" | "HEARTBEAT" | string;
+  run_id?: string;
+  streaming_url?: string;
+  purpose?: string;
+  status?: string;
+  result?: unknown;
+  error?: string;
+}
+
+/** Agent run over SSE so the UI can embed the live browser and show each step. */
+export async function agentStream(
+  body: { url: string; goal: string; browser_profile?: "lite" | "stealth"; agent_config?: { max_duration_seconds?: number } },
+  onEvent: (e: AgentStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<AgentStreamEvent | null> {
+  const r = await fetch("https://agent.tinyfish.ai/v1/automation/run-sse", {
+    method: "POST",
+    headers: { "X-API-Key": key(), "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!r.ok || !r.body) throw new Error(`agent ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let final: AgentStreamEvent | null = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const parts = buf.split(/\r?\n\r?\n/);
+    buf = parts.pop() ?? "";
+    for (const part of parts) {
+      const data = part.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("");
+      if (!data) continue;
+      try {
+        const e = JSON.parse(data) as AgentStreamEvent;
+        onEvent(e);
+        if (e.type === "COMPLETE") final = e;
+      } catch { /* partial line */ }
+    }
+  }
+  return final;
 }
 
 /**
