@@ -45,7 +45,8 @@ function normalizeUrl(u?: string, host?: string): string | undefined {
 
 export function cleanLinks(l: Profile["links"]): Profile["links"] {
   return {
-    github: normalizeUrl(l.github, "github.com"),
+    // Always read the profile page itself (not ?tab=repositories etc.): it has the name, bio and pinned repos.
+    github: ((u) => (u ? `https://github.com/${new URL(u).pathname.split("/").filter(Boolean)[0] ?? ""}` : undefined))(normalizeUrl(l.github, "github.com")),
     linkedin: normalizeUrl(l.linkedin, "www.linkedin.com/in"),
     x: normalizeUrl(l.x, "x.com"),
     portfolio: normalizeUrl(l.portfolio),
@@ -55,7 +56,9 @@ export function cleanLinks(l: Profile["links"]): Profile["links"] {
 
 export async function buildProfile(tf: TinyFish, input: Partial<Profile>): Promise<Profile> {
   const links = cleanLinks(input.links ?? {});
-  const targets = Object.entries(links).filter(([, v]) => v) as [keyof Profile["links"], string][];
+  const targets = Object.entries(links).filter(([, v]) => v) as [keyof Profile["links"] | "githubRepos", string][];
+  // The repositories tab lists every repo with its description, which surfaces more skills and better project blurbs.
+  if (links.github) targets.push(["githubRepos", `${links.github}?tab=repositories`]);
   const pages = await tf.fetch(targets.map(([, u]) => u), "Read your profile links", { links: true, purpose: "Build a job applicant profile: name, headline, skills and projects" });
 
   const p: Profile = {
@@ -71,22 +74,26 @@ export async function buildProfile(tf: TinyFish, input: Partial<Profile>): Promi
     const d = pages.get(url);
     const text = d?.text ?? "";
     const blocked = !d || text.length < 400 || /enable javascript|sign in to view/i.test(text.slice(0, 400)) && kind !== "linkedin";
-    p.sources.push({ url, ok: !blocked, note: blocked ? (kind === "x" ? "X needs JavaScript; kept as a link" : "Couldn't read; kept as a link") : undefined });
+    if (kind !== "githubRepos") p.sources.push({ url, ok: !blocked, note: blocked ? (kind === "x" ? "X needs JavaScript; kept as a link" : "Couldn't read; kept as a link") : undefined });
     if (blocked) continue;
     allText.push(text, d?.description ?? "");
 
-    if (kind === "github") {
+    if (kind === "github" || kind === "githubRepos") {
       const name = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
-      if (name && !p.name) p.name = name;
-      if (!p.bio && d?.description) p.bio = d.description.replace(/\s+-\s+\S+$/, "");
+      if (kind === "github" && name && !p.name) p.name = name;
+      if (kind === "github" && !p.bio && d?.description && !/has \d+ repositories available/i.test(d.description)) p.bio = d.description.replace(/\s+-\s+\S+$/, "");
       const repoBase = new URL(url).pathname.split("/").filter(Boolean)[0];
       const repos = [...new Set((d?.links ?? []).filter((l) => new RegExp(`^https://github\\.com/${repoBase}/[^/#?]+$`, "i").test(l)))]
         .filter((l) => !/\/(followers|following|repositories|projects|packages|stars|sponsoring)$/i.test(l) && !/[?=]/.test(l));
-      for (const r of repos.slice(0, 6)) {
+      for (const r of repos.slice(0, 10)) {
         const repo = r.split("/").pop()!;
         if (repo.toLowerCase() === repoBase.toLowerCase()) continue;
-        const desc = text.match(new RegExp(`${esc(repo)}[^\\n]*\\n+([^\\n#*][^\\n]{10,160})`, "i"))?.[1];
-        p.projects.push({ name: repo, url: r, description: desc?.trim() });
+        const descRaw = text.match(new RegExp(`${esc(repo)}[^\\n]*\\n+([^\\n#*][^\\n]{10,160})`, "i"))?.[1]?.trim();
+        // Skip "descriptions" that are just the repo name or its language.
+        const description = descRaw && descRaw.toLowerCase() !== repo.toLowerCase() && !/^(typescript|javascript|python|html|css|rust|go|java|solidity|jupyter notebook|shell)$/i.test(descRaw) ? descRaw : undefined;
+        const prev = p.projects.find((x) => x.name === repo);
+        if (prev) prev.description ??= description;
+        else p.projects.push({ name: repo, url: r, description });
       }
       // GitHub avatar is predictable and public.
       p.avatar ??= `https://github.com/${repoBase}.png?size=160`;
@@ -106,6 +113,8 @@ export async function buildProfile(tf: TinyFish, input: Partial<Profile>): Promi
     }
   }
 
+  // Show described projects first.
+  p.projects = [...p.projects.filter((x) => x.description), ...p.projects.filter((x) => !x.description)].slice(0, 8);
   p.skills = [...new Set([...(input.skills ?? []), ...findSkills(allText.join("\n"))])].slice(0, 30);
   return p;
 }
